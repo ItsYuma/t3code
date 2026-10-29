@@ -20,6 +20,8 @@ provider instance's environment overrides to use ACP v1.
 
 ## Add an agent
 
+GitHub Copilot and OMP appear in the Add provider list. GitHub Copilot uses the ACP Registry entry `github-copilot-cli`. OMP uses the local `omp acp` command.
+
 1. Open **Settings → Providers**.
 2. Select **Add provider**, then **Show more**.
 3. Search the ACP Registry for the agent and select **Add** on its result.
