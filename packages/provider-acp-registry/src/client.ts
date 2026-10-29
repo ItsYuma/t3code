@@ -3,6 +3,33 @@ import { defineProviderClient } from "@t3tools/provider-core/client";
 
 import { AcpRegistrySettings } from "./settings.ts";
 
+type FeaturedRegistryConfig = Pick<AcpRegistrySettings, "source" | "agentId"> & {
+  readonly source: "registry";
+};
+
+type FeaturedLocalConfig = Pick<AcpRegistrySettings, "source" | "commandPath" | "commandArgs"> & {
+  readonly source: "local";
+};
+
+export type FeaturedAcpAgent = {
+  readonly id: string;
+  readonly label: string;
+  readonly config: FeaturedRegistryConfig | FeaturedLocalConfig;
+};
+
+export const FEATURED_ACP_AGENTS: ReadonlyArray<FeaturedAcpAgent> = [
+  {
+    id: "github-copilot",
+    label: "GitHub Copilot",
+    config: { source: "registry", agentId: "github-copilot-cli" },
+  },
+  {
+    id: "omp",
+    label: "OMP",
+    config: { source: "local", commandPath: "omp", commandArgs: ["acp"] },
+  },
+];
+
 export const acpRegistryClient = defineProviderClient({
   driverKind: ProviderDriverKind.make("acpRegistry"),
   label: "ACP Registry",

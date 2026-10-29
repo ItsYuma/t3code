@@ -1,3 +1,5 @@
+import { FEATURED_ACP_AGENTS, type FeaturedAcpAgent } from "./providerDriverMeta";
+
 export type WizardNavigation =
   | { readonly kind: "navigate"; readonly step: number }
   | { readonly kind: "blocked"; readonly step: number; readonly error: string };
@@ -52,6 +54,57 @@ export function deriveAvailableInstanceId(
     const candidate = `${base.slice(0, 64 - suffixText.length)}${suffixText}`;
     if (!existing.has(candidate)) return candidate;
   }
+}
+
+function commandArgsMatch(value: unknown, expected: ReadonlyArray<string>): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length === expected.length &&
+    expected.every((argument, index) => value[index] === argument)
+  );
+}
+
+function featuredAcpConfigMatches(
+  draft: Readonly<Record<string, unknown>>,
+  config: FeaturedAcpAgent["config"],
+): boolean {
+  switch (config.source) {
+    case "registry":
+      return draft.source !== "local" && draft.agentId === config.agentId;
+    case "local":
+      return (
+        draft.source === "local" &&
+        draft.commandPath === config.commandPath &&
+        commandArgsMatch(draft.commandArgs, config.commandArgs)
+      );
+  }
+}
+
+export function featuredAcpAgentForDraft(
+  driver: string,
+  draft: Readonly<Record<string, unknown>> | undefined,
+): FeaturedAcpAgent | undefined {
+  if (driver !== "acpRegistry" || draft === undefined) return undefined;
+  return FEATURED_ACP_AGENTS.find((agent) => featuredAcpConfigMatches(draft, agent.config));
+}
+
+export function featuredAcpConfigDraft(
+  config: FeaturedAcpAgent["config"],
+): Record<string, unknown> {
+  switch (config.source) {
+    case "registry":
+      return { source: config.source, agentId: config.agentId };
+    case "local":
+      return {
+        source: config.source,
+        commandPath: config.commandPath,
+        commandArgs: [...config.commandArgs],
+      };
+  }
+}
+
+export function featuredAcpOptionValue(id: string): string {
+  return `acp:${id}`;
 }
 
 export function isConfiguredAcpRegistryAgent(
