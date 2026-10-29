@@ -15,6 +15,8 @@ import { museClient } from "@t3tools/provider-muse/client";
 import { openCodeClient } from "@t3tools/provider-opencode/client";
 import { piClient } from "@t3tools/provider-pi/client";
 
+export { FEATURED_ACP_AGENTS, type FeaturedAcpAgent } from "@t3tools/provider-acp-registry/client";
+
 export const providerClients = makeProviderClientRegistry([
   {
     driverKind: ProviderDriverKind.make("codex"),

@@ -271,6 +271,54 @@ describe("AddProviderInstanceDialog environment routing", () => {
     expect(signInStep()).toBeNull();
   });
 
+  it.each([
+    {
+      label: "GitHub Copilot",
+      submit: "Continue to sign-in",
+      instanceId: "acpRegistry_github_copilot",
+      config: { source: "registry", agentId: "github-copilot-cli" },
+      signsIn: true,
+    },
+    {
+      label: "OMP",
+      submit: "Add instance",
+      instanceId: "acpRegistry_omp",
+      config: { source: "local", commandPath: "omp", commandArgs: ["acp"] },
+      signsIn: false,
+    },
+  ])(
+    "adds $label from the main provider grid",
+    async ({ label, submit, instanceId, config, signsIn }) => {
+      setup();
+      await using _screen = await render(dialog());
+      expect(radio(label), label).toBeDefined();
+      expect(document.body.textContent).not.toContain("Use Kilo Code");
+
+      await act(async () => radio(label)!.click());
+      await click("Next");
+      expect(document.querySelector(`[aria-label="Provider, step 1, ${label}"]`)).not.toBeNull();
+      await click(submit);
+
+      expect(settingsHooks.mutate).toHaveBeenCalledWith({
+        operation: "create",
+        instanceId,
+        instance: {
+          driver: "acpRegistry",
+          enabled: true,
+          displayName: label,
+          config,
+        },
+      });
+      if (signsIn) {
+        expect(actions.onOpenChange).not.toHaveBeenCalled();
+        expect(signInStep()?.textContent).toContain(`remote-device/${instanceId}`);
+      } else {
+        expect(actions.onOpenChange).toHaveBeenCalledWith(false);
+        expect(signInStep()).toBeNull();
+      }
+    },
+  );
+
   it("rejects a queued save after the provider grant is revoked", async () => {
     setup();
     await using screen = await prepareCodexInstance();

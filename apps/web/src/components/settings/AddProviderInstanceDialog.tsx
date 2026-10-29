@@ -31,7 +31,7 @@ import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collaps
 import { Input } from "../ui/input";
 import { RadioGroup } from "../ui/radio-group";
 import { toastManager } from "../ui/toast";
-import { providerClients } from "./providerDriverMeta";
+import { FEATURED_ACP_AGENTS, type FeaturedAcpAgent, providerClients } from "./providerDriverMeta";
 import { ProviderAccentColorPicker } from "./ProviderAccentColorPicker";
 import { SettingsGroup } from "./SettingsGroup";
 import { SettingsRow } from "./settingsLayout";
@@ -42,6 +42,9 @@ import {
   ACP_REGISTRY_WIZARD_STEPS,
   LOCAL_ACP_WIZARD_STEPS,
   deriveAvailableInstanceId,
+  featuredAcpAgentForDraft,
+  featuredAcpConfigDraft,
+  featuredAcpOptionValue,
   resolveAcpRegistryWizardNavigation,
   resolveWizardNavigation,
   updateProviderIdentityDraft,
@@ -81,6 +84,38 @@ const DRIVER_OPTIONS = providerClients.definitions.filter(
 const FEATURED_DRIVER_OPTIONS = DRIVER_OPTIONS.filter((option) => option.featured !== false);
 const MORE_DRIVER_OPTIONS = DRIVER_OPTIONS.filter((option) => option.featured === false);
 const EMPTY_CONFIG_DRAFT: Record<string, unknown> = {};
+
+interface ProviderGridOption {
+  readonly value: string;
+  readonly label: string;
+  readonly driverKind: ProviderDriverKind;
+  readonly acpRegistryAgentId?: string;
+  readonly badgeLabel?: string;
+}
+
+function providerGridOption(option: ProviderClientDefinition): ProviderGridOption {
+  return {
+    value: option.driverKind,
+    label: option.label,
+    driverKind: option.driverKind,
+    ...(option.badgeLabel ? { badgeLabel: option.badgeLabel } : {}),
+  };
+}
+
+function featuredAcpGridOption(agent: FeaturedAcpAgent): ProviderGridOption {
+  return {
+    value: featuredAcpOptionValue(agent.id),
+    label: agent.label,
+    driverKind: ACP_REGISTRY_DRIVER_KIND,
+    ...(agent.config.source === "registry" ? { acpRegistryAgentId: agent.config.agentId } : {}),
+  };
+}
+
+const FEATURED_GRID_OPTIONS = [
+  ...FEATURED_DRIVER_OPTIONS.map(providerGridOption),
+  ...FEATURED_ACP_AGENTS.map(featuredAcpGridOption),
+];
+const MORE_GRID_OPTIONS = MORE_DRIVER_OPTIONS.map(providerGridOption);
 function validateInstanceId(id: string, existing: ReadonlySet<string>): string | null {
   if (id.length === 0) return "Instance ID is required.";
   if (id.length > 64) return "Instance ID must be 64 characters or fewer.";
@@ -98,8 +133,8 @@ function ProviderOptionGrid({
   onValueChange,
   ...labelProps
 }: {
-  readonly options: ReadonlyArray<ProviderClientDefinition>;
-  readonly value: ProviderDriverKind;
+  readonly options: ReadonlyArray<ProviderGridOption>;
+  readonly value: string;
   readonly disabled: boolean;
   readonly onValueChange: (value: string) => void;
   readonly "aria-label"?: string;
@@ -115,13 +150,14 @@ function ProviderOptionGrid({
     >
       {options.map((option) => (
         <RadioPrimitive.Root
-          key={option.driverKind}
-          value={option.driverKind}
+          key={option.value}
+          value={option.value}
           className="relative flex cursor-pointer items-center gap-3 rounded-lg bg-card px-3 py-3 text-left text-muted-foreground outline-none ring-1 ring-black/5 hover:bg-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-checked:bg-primary/8 data-checked:text-foreground data-checked:ring-2 data-checked:ring-inset data-checked:ring-primary data-checked:hover:bg-primary/8 dark:bg-white/3 dark:ring-white/5 dark:hover:bg-white/5 dark:data-checked:bg-primary/15 dark:data-checked:ring-primary dark:data-checked:hover:bg-primary/15"
         >
           <ProviderInstanceIcon
             driverKind={option.driverKind}
             displayName={option.label}
+            acpRegistryAgentId={option.acpRegistryAgentId}
             iconClassName="size-4"
           />
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
@@ -223,6 +259,8 @@ export function AddProviderInstanceDialog({
   const previewLabel = label.trim() || `${driverOption.label} Workspace`;
 
   const configDraft = configByDriver[driver] ?? EMPTY_CONFIG_DRAFT;
+  const featuredAgent = featuredAcpAgentForDraft(driver, configDraft);
+  const providerOptionValue = featuredAgent ? featuredAcpOptionValue(featuredAgent.id) : driver;
   const isLocalAcp = isAcpRegistry && isManualAcpConfiguration && configDraft.source === "local";
   const localCommandPath =
     typeof configDraft.commandPath === "string" ? configDraft.commandPath.trim() : "";
@@ -236,7 +274,8 @@ export function AddProviderInstanceDialog({
       : "Select an ACP or configure one manually.";
   const wizardStepSummaries = isAcpRegistry
     ? ([
-        isLocalAcp ? "Local ACP command" : (selectedAcp?.name ?? (manualAgentId || null)),
+        featuredAgent?.label ??
+          (isLocalAcp ? "Local ACP command" : (selectedAcp?.name ?? (manualAgentId || null))),
         previewLabel,
         null,
       ] as const)
@@ -256,6 +295,43 @@ export function AddProviderInstanceDialog({
     setDriver(ProviderDriverKind.make(value));
     setIsManualAcpConfiguration(false);
     setHasAttemptedSubmit(false);
+  };
+  const beginAcpConfiguration = (input: {
+    readonly config?: Record<string, unknown> | undefined;
+    readonly label: string;
+    readonly clearEnvironment: boolean;
+  }) => {
+    setDriver(ACP_REGISTRY_DRIVER_KIND);
+    setSelectedAcp(null);
+    setIsManualAcpConfiguration(true);
+    setConfigByDriver((existing) => {
+      const next = { ...existing };
+      if (input.config === undefined) delete next[ACP_REGISTRY_DRIVER_KIND];
+      else next[ACP_REGISTRY_DRIVER_KIND] = input.config;
+      return next;
+    });
+    setIdentityByDriver((existing) =>
+      updateProviderIdentityDraft(existing, ACP_REGISTRY_DRIVER_KIND, {
+        label: input.label,
+        instanceIdOverride: null,
+      }),
+    );
+    if (input.clearEnvironment) setLocalEnvironment([]);
+    setHasAttemptedSubmit(false);
+  };
+  const selectProviderOption = (value: string) => {
+    const agent = FEATURED_ACP_AGENTS.find(
+      (candidate) => featuredAcpOptionValue(candidate.id) === value,
+    );
+    if (agent) {
+      beginAcpConfiguration({
+        config: featuredAcpConfigDraft(agent.config),
+        label: agent.label,
+        clearEnvironment: true,
+      });
+      return;
+    }
+    selectDriver(value);
   };
   const setIdentityDraft = (update: Partial<ProviderIdentityDraft>) => {
     setIdentityByDriver((existing) => ({
@@ -324,39 +400,15 @@ export function AddProviderInstanceDialog({
   };
 
   const handleManualAcpConfiguration = () => {
-    setDriver(ACP_REGISTRY_DRIVER_KIND);
-    setSelectedAcp(null);
-    setIsManualAcpConfiguration(true);
-    setConfigByDriver((existing) => {
-      const next = { ...existing };
-      delete next[ACP_REGISTRY_DRIVER_KIND];
-      return next;
-    });
-    setIdentityByDriver((existing) =>
-      updateProviderIdentityDraft(existing, ACP_REGISTRY_DRIVER_KIND, {
-        label: "",
-        instanceIdOverride: null,
-      }),
-    );
-    setHasAttemptedSubmit(false);
+    beginAcpConfiguration({ label: "", clearEnvironment: false });
   };
 
   const handleLocalAcpConfiguration = () => {
-    setDriver(ACP_REGISTRY_DRIVER_KIND);
-    setSelectedAcp(null);
-    setIsManualAcpConfiguration(true);
-    setConfigByDriver((existing) => ({
-      ...existing,
-      [ACP_REGISTRY_DRIVER_KIND]: { source: "local", commandArgs: [] },
-    }));
-    setIdentityByDriver((existing) =>
-      updateProviderIdentityDraft(existing, ACP_REGISTRY_DRIVER_KIND, {
-        label: "Local ACP",
-        instanceIdOverride: null,
-      }),
-    );
-    setLocalEnvironment([]);
-    setHasAttemptedSubmit(false);
+    beginAcpConfiguration({
+      config: { source: "local", commandArgs: [] },
+      label: "Local ACP",
+      clearEnvironment: true,
+    });
   };
 
   const handleSave = async () => {
@@ -465,10 +517,10 @@ export function AddProviderInstanceDialog({
                   Provider
                 </div>
                 <ProviderOptionGrid
-                  options={FEATURED_DRIVER_OPTIONS}
-                  value={driver}
+                  options={FEATURED_GRID_OPTIONS}
+                  value={providerOptionValue}
                   disabled={isPreparingRegistryAgent}
-                  onValueChange={selectDriver}
+                  onValueChange={selectProviderOption}
                   aria-labelledby="add-instance-driver-label"
                 />
                 <MultipleAccountsNote environmentId={environmentId} driver={driver} />
@@ -489,10 +541,10 @@ export function AddProviderInstanceDialog({
                   <CollapsiblePanel animate={false}>
                     <div className="space-y-4 pt-4">
                       <ProviderOptionGrid
-                        options={MORE_DRIVER_OPTIONS}
-                        value={driver}
+                        options={MORE_GRID_OPTIONS}
+                        value={providerOptionValue}
                         disabled={isPreparingRegistryAgent}
-                        onValueChange={selectDriver}
+                        onValueChange={selectProviderOption}
                         aria-label="More providers"
                       />
                       <div className="flex items-center gap-3 text-xs text-muted-foreground">
